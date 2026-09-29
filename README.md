@@ -44,9 +44,9 @@ market-pipeline/
 ├── .gitignore
 ├── pyproject.toml             # 项目依赖与配置
 └── README.md
+```
 
 ## 📊 回测结果概览
-*(图片加载中，请稍候... 建议上传净值图后替换下面的占位图)*
 ![多因子轮动策略净值对比](https://github.com/dymfyx/market-pipeline/raw/main/Figure_1.png)
 
 基于 2024-01 至 2026-09 的样本外数据，对沪深两市 77 只股票进行多因子轮动回测，结果如下：
