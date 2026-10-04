@@ -7,15 +7,15 @@ import akshare as ak #爬数据
 import pandas as pd #存表格
 from concurrent.futures import ThreadPoolExecutor #线程池
 
-# 关键修复：Windows 下强制使用 Selector 事件循环
+# 关键修复：Windows 下强制使用 Selector 事件循环,以使用管道
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # 限制同时最多 3 个并发请求，防止被封 IP
-sem = asyncio.Semaphore(2)
+sem = asyncio.Semaphore(3)
 
 # 显式创建一个受控的线程池，避免 Python 底层默认线程池在 Windows 上崩溃
-executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ak_fetch")
+executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="ak_fetch")
 
 async def fetch_with_retry(stock_code: str, start_date: str, end_date: str, max_retries: int = 3) -> pd.DataFrame:
     """
@@ -26,7 +26,7 @@ async def fetch_with_retry(stock_code: str, start_date: str, end_date: str, max_
 
     for attempt in range(1, max_retries + 1):
         try:
-            async with sem:
+            async with sem:#控制同时进程数
                 print(f"正在抓取 {stock_code} (第 {attempt} 次尝试) ...")
 
                 # 使用我们自建的 executor，而不是 asyncio.to_thread
@@ -36,17 +36,17 @@ async def fetch_with_retry(stock_code: str, start_date: str, end_date: str, max_
                         symbol=symbol,
                         start_date=start_date,
                         end_date=end_date,
-                        adjust="qfq",
+                        adjust="qfq",#前复权，抹平历史价格断层
                     ),
                 )
-                await asyncio.sleep(random.uniform(0.5, 1.5))
+                await asyncio.sleep(random.uniform(0.5, 1.5))#随机休眠，防止被封 IP
                 return df
 
         except Exception as e:
             print(f"{stock_code} 第 {attempt} 次尝试失败: {e}")
             if attempt == max_retries:
                 raise
-            await asyncio.sleep(2 * attempt)
+            await asyncio.sleep(2 * attempt)#指数退避
 
 
 def validate_data(df, stock_code):
@@ -65,7 +65,7 @@ def validate_data(df, stock_code):
             return False
             
     # 检查最高价是否大于等于最低价（逻辑校验）
-    if (df['high'] < df['low']).any():
+    if (df['high'] > df['low']).any():
         print(f"⚠️ {stock_code} 存在最高价低于最低价的异常数据！")
         return False
         
@@ -97,16 +97,17 @@ def save_data(df, stock_code, output_dir="data/raw"):
 
 async def main() -> None:
     codes = [
-    "000001", "000002", "000063", "000100", "000157", "000333", "000338", "000425", "000538", "000568",
-    "000596", "000625", "000651", "000725", "000768", "000776", "000858", "000876", "000895", "000938",
-    "000977", "001979", "002001", "002007", "002027", "002049", "002050", "002129", "002142", "002179",
-    "002230", "002236", "002241", "002271", "002304", "002311", "002352", "002371", "002415", "002459",
-    "002460", "002466", "002475", "002493", "002594", "002601", "002607", "002714", "002736", "002812",
-    "002821", "002841", "002916", "002938", "003816", "300014", "300015", "300033", "300059", "300122",
-    "300124", "300142", "300274", "300316", "300347", "300408", "300413", "300433", "300450", "300498",
-    "300628", "300661", "300750", "300759", "300760", "300782", "300896", "300919", "300999", "600000",
-    "600009", "600016", "600028", "600030", "600031", "600036", "600048", "600050", "600089", "600104",
-    "600111", "600115", "600150", "600176", "600196", "600276", "600309", "600346", "600406", "600438"
+    "000001"
+    # "000001", "000002", "000063", "000100", "000157", "000333", "000338", "000425", "000538", "000568",
+    # "000596", "000625", "000651", "000725", "000768", "000776", "000858", "000876", "000895", "000938",
+    # "000977", "001979", "002001", "002007", "002027", "002049", "002050", "002129", "002142", "002179",
+    # "002230", "002236", "002241", "002271", "002304", "002311", "002352", "002371", "002415", "002459",
+    # "002460", "002466", "002475", "002493", "002594", "002601", "002607", "002714", "002736", "002812",
+    # "002821", "002841", "002916", "002938", "003816", "300014", "300015", "300033", "300059", "300122",
+    # "300124", "300142", "300274", "300316", "300347", "300408", "300413", "300433", "300450", "300498",
+    # "300628", "300661", "300750", "300759", "300760", "300782", "300896", "300919", "300999", "600000",
+    # "600009", "600016", "600028", "600030", "600031", "600036", "600048", "600050", "600089", "600104",
+    # "600111", "600115", "600150", "600176", "600196", "600276", "600309", "600346", "600406", "600438"
 ]
 
     start = time.perf_counter()
