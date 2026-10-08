@@ -35,9 +35,21 @@ for i, day in enumerate(rebalance_days):
     if len(scores) < 10:
         continue
         
-    # 挑出动量最高的前 10 只股票
-    top_10 = scores.nlargest(10).index
-    
+    # 挑出动量最高的前 20 只（作为备选池，防止前10里有人涨停买不进）
+    top_candidates = scores.nlargest(20).index
+
+    # 获取当天的涨跌幅数据（用于判断是否涨停）
+    day_returns = returns.loc[day]
+
+    # 过滤掉涨停的股票（假设涨停幅度为9.5%以上）
+    top_10 = []
+    for code in top_candidates:
+        # 如果这只股票在当天没有数据，或者涨幅小于9.5%，才算可买入
+        if code in day_returns.index and day_returns[code] < 0.095:
+            top_10.append(code)
+        if len(top_10) == 10:  # 选够10只就停
+            break
+        
     # 在下一次调仓日之前，一直持有这10只股票
     if i + 1 < len(rebalance_days):
         next_day = rebalance_days[i+1]
@@ -64,15 +76,33 @@ benchmark_returns = returns.mean(axis=1)
 #mean(axis=1) 按行求平均，得到每天的等权基准收益率
 cumulative_benchmark = (1 + benchmark_returns).cumprod()
 
+# ================= 6.5 引入沪深300基准对比 =================
+# 1. 读取大盘数据，并将 date 设为索引
+bench = pd.read_parquet("data/benchmark.parquet")
+bench = bench.set_index('date')
+
+# 2. 对齐日期（重要！只保留策略存在的日期）
+# 这里用到 .loc，截取策略日期范围内的数据
+bench = bench.loc[df.index.min():df.index.max()]
+
+# 3. 计算沪深300的每日收益率和累计净值
+bench_returns = bench['close'].pct_change()
+cumulative_benchmark_300 = (1 + bench_returns).cumprod()
+
+# 4. 处理第一天的 NaN 值（把第一个值设为1.0）
+cumulative_benchmark_300.iloc[0] = 1.0
+
 # ================= 7. 打印结果 =================
 print("\n=== 动量轮动回测结果 ===")
 print(f"策略最终净值: {cumulative_strategy.iloc[-1]:.4f}")
 print(f"等权基准最终净值: {cumulative_benchmark.iloc[-1]:.4f}")
+print(f"沪深300基准最终净值: {cumulative_benchmark_300.iloc[-1]:.4f}")
 
 # ================= 8. 画图 =================
 plt.figure(figsize=(12, 6))
 plt.plot(cumulative_strategy, label='20日动量轮动策略(前10)', color='red')
 plt.plot(cumulative_benchmark, label='等权持有全部股票基准', color='gray', alpha=0.7)
+plt.plot(cumulative_benchmark_300, label='沪深300基准', color='green', alpha=0.7)
 plt.title("多股票动量轮动策略 vs 基准")
 plt.xlabel("日期")
 plt.ylabel("累计净值")
