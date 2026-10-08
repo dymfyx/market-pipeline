@@ -61,6 +61,7 @@ strategy_returns = (positions * returns).sum(axis=1) - turnover * cost
 # 计算累计净值
 cumulative_strategy = (1 + strategy_returns).cumprod()
 benchmark_returns = returns.mean(axis=1)
+#mean(axis=1) 按行求平均，得到每天的等权基准收益率
 cumulative_benchmark = (1 + benchmark_returns).cumprod()
 
 # ================= 7. 打印结果 =================
