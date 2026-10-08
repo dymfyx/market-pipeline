@@ -6,4 +6,5 @@ data/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
 .venv_trade/

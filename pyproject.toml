@@ -27,6 +27,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--cov=market_pipeline --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 100
