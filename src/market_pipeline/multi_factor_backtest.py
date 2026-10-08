@@ -23,7 +23,7 @@ volatility_rank = volatility_score.rank(axis=1, pct=True)
 
 # ================= 4. 合成综合得分 =================
 # 各占50%权重
-combined_score = 1 * momentum_rank + 0 * volatility_rank
+combined_score = 0.8 * momentum_rank + 0.2 * volatility_rank
 
 # ================= 5. 设定调仓周期 =================
 rebalance_days = df.index[::10] 

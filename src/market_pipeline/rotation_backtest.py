@@ -25,11 +25,13 @@ print(f"总交易日: {len(df)} 天，共调仓 {len(rebalance_days)} 次")
 positions = pd.DataFrame(0.0, index=df.index, columns=df.columns) # 持仓矩阵
 
 for i, day in enumerate(rebalance_days):
+    #i 是调仓日的索引，day 是具体的日期
     if day not in momentum.index:
         continue
     
     # 获取该调仓日所有股票的动量排名
     scores = momentum.loc[day].dropna()
+    #loc[day] 获取该调仓日的所有股票动量值，dropna() 去掉缺失值
     if len(scores) < 10:
         continue
         
@@ -40,14 +42,16 @@ for i, day in enumerate(rebalance_days):
     if i + 1 < len(rebalance_days):
         next_day = rebalance_days[i+1]
         positions.loc[day:next_day, top_10] = 0.1  # 每只股票分配10%的仓位
+        #loc[day:next_day, top_10] 表示从当前调仓日到下一次调仓日，top_10 这些股票的仓位都设为0.1
 
 # 关键：仓位必须向后 shift(1) 天，防止未来函数（今天收盘选股，明天开盘才能买）
 positions = positions.shift(1).fillna(0)
+#fillna(0) 将缺失值填充为0，表示没有持仓
 
 # ================= 6. 计算策略每日收益（带手续费和滑点） =================
 # 计算换手率：仓位变化绝对值之和的一半（因为买卖对冲）
 turnover = positions.diff().abs().sum(axis=1) / 2
-
+#sum(axis=1) 按行求和，得到每天的总换手率，除以2是因为买入和卖出各算一次
 # 设定单边手续费+滑点 = 万分之十五 (0.0015)
 cost = 0.0015 
 
