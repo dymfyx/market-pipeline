@@ -47,5 +47,8 @@ def merge_all_data(data_dir="data/raw", output_file="data/merged_close.parquet")
     merged_df.to_parquet(output_file)
     print(f"\n✅ 合并完成，已保存到 {output_file}")
 
+    # 8. 返回合并结果，供调用方继续使用（如后续因子计算、回测）
+    return merged_df
+
 if __name__ == "__main__":
     merge_all_data()
