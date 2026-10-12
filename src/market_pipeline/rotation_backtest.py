@@ -1,111 +1,187 @@
+"""
+动量轮动回测：20日动量选股 + 涨停过滤 + 沪深300基准对比
+
+结构：纯函数（可测试）+ main（读文件 / 打印 / 画图）
+"""
 import pandas as pd
 import matplotlib.pyplot as plt
 
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
-# ================= 1. 读取合并后的大表 =================
-df = pd.read_parquet("data/merged_close.parquet")
 
-# ================= 2. 计算每日收益率 =================
-# 计算所有股票每天的涨跌幅
-returns = df.pct_change()
+def compute_momentum(close, window=20):
+    """计算动量因子：N日收益率（默认20日）。
 
-# ================= 3. 计算动量（20日收益率） =================
-# 动量 = 今天的价格 / 20天前的价格 - 1
-momentum = df / df.shift(20) - 1
+    参数
+    ----
+    close : pd.DataFrame
+        收盘价宽表，行 = 日期，列 = 股票代码。
+    window : int
+        动量窗口天数。
 
-# ================= 4. 设定调仓周期：每5个交易日（一周）调仓一次 =================
-# 找出每隔5天的调仓日索引
-rebalance_days = df.index[::5] 
-print(f"总交易日: {len(df)} 天，共调仓 {len(rebalance_days)} 次")
+    返回
+    ----
+    pd.DataFrame
+        动量因子表，index/columns 与 close 一致。
+    """
+    return close / close.shift(window) - 1
 
-# ================= 5. 循环每个调仓日，挑选排名前10的股票 =================
-# 为了简化，我们先假设每次买入前10名，等权重分配（每只股票10%仓位）
-positions = pd.DataFrame(0.0, index=df.index, columns=df.columns) # 持仓矩阵
 
-for i, day in enumerate(rebalance_days):
-    #i 是调仓日的索引，day 是具体的日期
-    if day not in momentum.index:
-        continue
-    
-    # 获取该调仓日所有股票的动量排名
-    scores = momentum.loc[day].dropna()
-    #loc[day] 获取该调仓日的所有股票动量值，dropna() 去掉缺失值
-    if len(scores) < 10:
-        continue
-        
-    # 挑出动量最高的前 20 只（作为备选池，防止前10里有人涨停买不进）
-    top_candidates = scores.nlargest(20).index
+def filter_limit_up(candidates, day_returns, threshold=0.095, top_n=10):
+    """从候选股票中剔除涨停股，选满 top_n 只。
 
-    # 获取当天的涨跌幅数据（用于判断是否涨停）
-    day_returns = returns.loc[day]
+    规则：只有"当天有数据且涨幅 < 阈值"的股票才可买入；
+    涨停（涨幅 >= 阈值）或当天无数据（停牌）都买不进。
 
-    # 过滤掉涨停的股票（假设涨停幅度为9.5%以上）
-    top_10 = []
-    for code in top_candidates:
-        # 如果这只股票在当天没有数据，或者涨幅小于9.5%，才算可买入
-        if code in day_returns.index and day_returns[code] < 0.095:
-            top_10.append(code)
-        if len(top_10) == 10:  # 选够10只就停
+    参数
+    ----
+    candidates : Index / list
+        按动量排名靠前的候选股票代码。
+    day_returns : pd.Series
+        调仓日当天所有股票的涨跌幅。
+    threshold : float
+        涨停判断阈值（默认 9.5%）。
+    top_n : int
+        需要选出的股票数量。
+
+    返回
+    ----
+    list
+        最终可买入的股票代码列表。
+    """
+    selected = []
+    for code in candidates:
+        # 有数据且没涨停 → 可买入；否则（涨停 / 停牌无数据）跳过
+        if code in day_returns.index and day_returns[code] < threshold:
+            selected.append(code)
+        if len(selected) == top_n:  # 选满 top_n 只就停
             break
-        
-    # 在下一次调仓日之前，一直持有这10只股票
-    if i + 1 < len(rebalance_days):
-        next_day = rebalance_days[i+1]
-        positions.loc[day:next_day, top_10] = 0.1  # 每只股票分配10%的仓位
-        #loc[day:next_day, top_10] 表示从当前调仓日到下一次调仓日，top_10 这些股票的仓位都设为0.1
+    return selected
 
-# 关键：仓位必须向后 shift(1) 天，防止未来函数（今天收盘选股，明天开盘才能买）
-positions = positions.shift(1).fillna(0)
-#fillna(0) 将缺失值填充为0，表示没有持仓
 
-# ================= 6. 计算策略每日收益（带手续费和滑点） =================
-# 计算换手率：仓位变化绝对值之和的一半（因为买卖对冲）
-turnover = positions.diff().abs().sum(axis=1) / 2
-#sum(axis=1) 按行求和，得到每天的总换手率，除以2是因为买入和卖出各算一次
-# 设定单边手续费+滑点 = 万分之十五 (0.0015)
-cost = 0.0015 
+def select_positions(momentum, returns, rebalance_every=5, top_n=10,
+                     candidate_pool=20, limit_up_threshold=0.095):
+    """按调仓周期轮动选股（含涨停过滤），输出延迟一天生效的仓位表。
 
-# 策略收益 = 持仓收益 - 换手率 * 交易成本
-strategy_returns = (positions * returns).sum(axis=1) - turnover * cost
+    参数
+    ----
+    momentum : pd.DataFrame
+        compute_momentum 的输出。
+    returns : pd.DataFrame
+        每日收益率宽表。
+    rebalance_every : int
+        每多少个交易日调仓一次。
+    top_n : int
+        每次持有股票数量（等权，每只 1/top_n）。
+    candidate_pool : int
+        候选池大小：先取动量前 candidate_pool 名，再过滤涨停
+        （留出备选，防止前 top_n 里有人涨停买不进）。
+    limit_up_threshold : float
+        涨停判断阈值。
 
-# 计算累计净值
-cumulative_strategy = (1 + strategy_returns).cumprod()
-benchmark_returns = returns.mean(axis=1)
-#mean(axis=1) 按行求平均，得到每天的等权基准收益率
-cumulative_benchmark = (1 + benchmark_returns).cumprod()
+    返回
+    ----
+    pd.DataFrame
+        仓位表，已 shift(1) 防未来函数。
+    """
+    positions = pd.DataFrame(0.0, index=momentum.index, columns=momentum.columns)
+    # 每隔 rebalance_every 天取一个调仓日
+    rebalance_days = momentum.index[::rebalance_every]
 
-# ================= 6.5 引入沪深300基准对比 =================
-# 1. 读取大盘数据，并将 date 设为索引
-bench = pd.read_parquet("data/benchmark.parquet")
-bench = bench.set_index('date')
+    for i, day in enumerate(rebalance_days):
+        if day not in momentum.index:
+            continue
+        scores = momentum.loc[day].dropna()
+        if len(scores) < top_n:  # 当天有效股票太少，跳过这次调仓
+            continue
+        # 先取动量前 candidate_pool 名作为备选池
+        top_candidates = scores.nlargest(candidate_pool).index
+        day_returns = returns.loc[day]
+        # 过滤涨停，选出最终可买入的 top_n 只
+        selected = filter_limit_up(top_candidates, day_returns,
+                                   threshold=limit_up_threshold, top_n=top_n)
 
-# 2. 对齐日期（重要！只保留策略存在的日期）
-# 这里用到 .loc，截取策略日期范围内的数据
-bench = bench.loc[df.index.min():df.index.max()]
+        if i + 1 < len(rebalance_days):
+            next_day = rebalance_days[i + 1]
+            positions.loc[day:next_day, selected] = 1 / top_n  # 等权
 
-# 3. 计算沪深300的每日收益率和累计净值
-bench_returns = bench['close'].pct_change()
-cumulative_benchmark_300 = (1 + bench_returns).cumprod()
+    # 关键：防止未来函数，仓位延迟一天（今天收盘选股，明天开盘才能买）
+    return positions.shift(1).fillna(0)
 
-# 4. 处理第一天的 NaN 值（把第一个值设为1.0）
-cumulative_benchmark_300.iloc[0] = 1.0
 
-# ================= 7. 打印结果 =================
-print("\n=== 动量轮动回测结果 ===")
-print(f"策略最终净值: {cumulative_strategy.iloc[-1]:.4f}")
-print(f"等权基准最终净值: {cumulative_benchmark.iloc[-1]:.4f}")
-print(f"沪深300基准最终净值: {cumulative_benchmark_300.iloc[-1]:.4f}")
+def run_backtest(close, rebalance_every=5, top_n=10, cost=0.0015):
+    """跑一轮动量轮动回测，返回策略与等权基准的收益、净值。
 
-# ================= 8. 画图 =================
-plt.figure(figsize=(12, 6))
-plt.plot(cumulative_strategy, label='20日动量轮动策略(前10)', color='red')
-plt.plot(cumulative_benchmark, label='等权持有全部股票基准', color='gray', alpha=0.7)
-plt.plot(cumulative_benchmark_300, label='沪深300基准', color='green', alpha=0.7)
-plt.title("多股票动量轮动策略 vs 基准")
-plt.xlabel("日期")
-plt.ylabel("累计净值")
-plt.legend()
-plt.grid(True)
-plt.show()
+    参数
+    ----
+    close : pd.DataFrame
+        收盘价宽表。
+    rebalance_every : int
+        调仓间隔（交易日）。
+    top_n : int
+        持有股票数。
+    cost : float
+        单边手续费+滑点（默认万分之十五）。
+
+    返回
+    ----
+    dict
+        含 strategy_returns / benchmark_returns / 两个净值序列 / turnover。
+    """
+    returns = close.pct_change()
+    momentum = compute_momentum(close)
+    positions = select_positions(momentum, returns,
+                                 rebalance_every=rebalance_every, top_n=top_n)
+
+    # 换手率：仓位变化绝对值之和的一半（买卖各算一次）
+    turnover = positions.diff().abs().sum(axis=1) / 2
+    # 策略收益 = 持仓收益 - 换手率 * 交易成本
+    strategy_returns = (positions * returns).sum(axis=1) - turnover * cost
+    # 等权基准：所有股票等权持有（不调仓，无手续费）
+    benchmark_returns = returns.mean(axis=1)
+
+    return {
+        'strategy_returns': strategy_returns,
+        'benchmark_returns': benchmark_returns,
+        'strategy_net_value': (1 + strategy_returns).cumprod(),
+        'benchmark_net_value': (1 + benchmark_returns).cumprod(),
+        'turnover': turnover,
+    }
+
+
+def main():
+    # ===== I/O 层：读文件、打印、画图都只在这里 =====
+    df = pd.read_parquet("data/merged_close.parquet")
+    result = run_backtest(df, rebalance_every=5, top_n=10)
+
+    # 沪深300基准（外部数据文件，属于 I/O，不进纯函数）
+    bench = pd.read_parquet("data/benchmark.parquet")
+    bench = bench.set_index('date')
+    bench = bench.loc[df.index.min():df.index.max()]  # 对齐到策略日期范围
+    bench_returns = bench['close'].pct_change()
+    cumulative_benchmark_300 = (1 + bench_returns).cumprod()
+    cumulative_benchmark_300.iloc[0] = 1.0  # 第一天是 NaN，置为 1.0
+
+    cumulative_strategy = result['strategy_net_value']
+    cumulative_benchmark = result['benchmark_net_value']
+
+    print("\n=== 动量轮动回测结果 ===")
+    print(f"策略最终净值: {cumulative_strategy.iloc[-1]:.4f}")
+    print(f"等权基准最终净值: {cumulative_benchmark.iloc[-1]:.4f}")
+    print(f"沪深300基准最终净值: {cumulative_benchmark_300.iloc[-1]:.4f}")
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(cumulative_strategy, label='20日动量轮动策略(前10)', color='red')
+    plt.plot(cumulative_benchmark, label='等权持有全部股票基准', color='gray', alpha=0.7)
+    plt.plot(cumulative_benchmark_300, label='沪深300基准', color='green', alpha=0.7)
+    plt.title("多股票动量轮动策略 vs 基准")
+    plt.xlabel("日期")
+    plt.ylabel("累计净值")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
