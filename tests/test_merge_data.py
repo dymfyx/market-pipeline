@@ -1,6 +1,6 @@
 import pandas as pd
 
-from market_pipeline.merge_data import merge_all_data
+from market_pipeline.data.merge_data import merge_all_data
 
 
 def _write_stock(tmp_path, code: str, dates, closes) -> None:

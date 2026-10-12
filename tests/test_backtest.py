@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from market_pipeline.backtest import run_backtest, compute_signal
+from market_pipeline.backtest.backtest import run_backtest, compute_signal
 
 def test_signal_holds_when_uptrend():
     # 一直涨的价格：短均线必然在长均线之上 → 信号应该全 1

@@ -25,21 +25,31 @@ market-pipeline/
 ├── src/market_pipeline/       # 核心源码模块
 │   ├── __init__.py
 │   ├── config.py              # 参数配置
-│   ├── fetcher_async.py       # 异步数据抓取（核心）
-│   ├── fetcher_async_try.py   # 抓取测试脚本
-│   ├── fetcher_sync.py        # 同步抓取（对比用）
 │   ├── models.py              # 数据模型定义
-│   ├── read_data.py           # 数据预览脚本
-│   ├── merge_data.py          # 多股票数据合并
 │   ├── analyze.py             # 单股票数据分析
-│   ├── backtest.py            # 单股票双均线回测
-│   ├── rotation_backtest.py   # 多股票动量轮动回测
-│   └── multi_factor_backtest.py # 多因子轮动回测
+│   ├── linear_regression.py   # 线性回归模型（P2 进行中）
+│   ├── data/                  # 数据获取与清洗
+│   │   ├── __init__.py
+│   │   ├── fetcher_async.py       # 异步数据抓取（核心）
+│   │   ├── fetcher_async_try.py   # 抓取测试脚本
+│   │   ├── fetcher_sync.py        # 同步抓取（对比用）
+│   │   ├── fetch_index.py         # 指数数据抓取
+│   │   ├── merge_data.py          # 多股票数据合并
+│   │   └── read_data.py           # 数据预览脚本
+│   └── backtest/              # 策略与回测
+│       ├── __init__.py
+│       ├── backtest.py            # 单股票双均线回测
+│       ├── rotation_backtest.py   # 多股票动量轮动回测
+│       └── multi_factor_backtest.py # 多因子轮动回测
 ├── data/                      # 本地数据存储（git忽略）
 │   ├── raw/                   # 原始行情数据
 │   └── merged_close.parquet   # 对齐后的收盘价大表
 ├── tests/                     # 单元测试
-│   └── test_config.py
+│   ├── test_config.py
+│   ├── test_merge_data.py
+│   ├── test_backtest.py
+│   ├── test_multi_factor_backtest.py
+│   └── test_rotation_backtest.py
 ├── notes/                     # 学习与复盘笔记（待建）
 ├── .gitignore
 ├── pyproject.toml             # 项目依赖与配置

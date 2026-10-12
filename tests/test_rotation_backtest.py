@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from market_pipeline.rotation_backtest import run_backtest, select_positions, filter_limit_up
+from market_pipeline.backtest.rotation_backtest import run_backtest, select_positions, filter_limit_up
 
 def test_filter_limit_up_excludes_limit_up_stock():
     # A 当天 +10%（涨停），B、C 正常

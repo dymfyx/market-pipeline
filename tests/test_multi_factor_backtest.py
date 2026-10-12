@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from market_pipeline.multi_factor_backtest import compute_factors, select_positions, run_backtest
+from market_pipeline.backtest.multi_factor_backtest import compute_factors, select_positions, run_backtest
 
 def _make_close(n=30):
     """确定性数据集：A 稳步涨、B 稳步跌、C 剧烈震荡。"""
